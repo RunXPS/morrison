@@ -9,11 +9,15 @@ import sys
 import pyttsx3
 import json
 
+# === USING PYTTSX3 === #
+# for playing text with audio
 def speak(text):
+    """Using the pyttsx3 to play audio of the given text."""
     engine = pyttsx3.init()
     engine.say(text)
     engine.runAndWait()
 
+# === USING ARGPARSE === #
 q = queue.Queue()
 
 def int_or_str(text):
@@ -23,12 +27,14 @@ def int_or_str(text):
     except ValueError:
         return text
 
+# function to interpret the input audio given
 def callback(indata, frames, time, status):
     """This is called (from a separate thread) for each audio block."""
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
 
+# accessing cmd via argparse
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument(
     '-l', '--list-devices', action='store_true',
@@ -54,48 +60,55 @@ parser.add_argument(
     '-r', '--samplerate', type=int, help='sampling rate')
 args = parser.parse_args(remaining)
 
+# === USING VOSK === #
 try:
+    # initialize the vosk model in the 'model' dir
     if args.model is None:
         args.model = "model"
+    # if there is no model given
     if not os.path.exists(args.model):
         print ("Please download a model for your language from https://alphacephei.com/vosk/models")
         print ("and unpack as 'model' in the current folder.")
         parser.exit(0)
     if args.samplerate is None:
+        # setting the input device
         device_info = sd.query_devices(args.device, 'input')
         # soundfile expects an int, sounddevice provides a float:
         args.samplerate = int(device_info['default_samplerate'])
-
+    
+    # setting the vosk english model
     model = vosk.Model(args.model)
 
+    # opens file if given to be written into
     if args.filename:
         dump_fn = open(args.filename, "wb")
     else:
         dump_fn = None
 
+    # constant stream of audio input
     with sd.RawInputStream(samplerate=args.samplerate, blocksize = 8000, device=args.device, dtype='int16',
                             channels=1, callback=callback):
             print('#' * 80)
             print('Press Ctrl+C to stop the recording')
             print('#' * 80)
 
+            # Kaldi ~ a speech recognition toolkit containing a collection speech recognition libraries 
             rec = vosk.KaldiRecognizer(model, args.samplerate)
             while True:
                 data = q.get()
                 if rec.AcceptWaveform(data):
                     # Text is a string
                     text = (rec.Result())
-                    # convert it to a dictionary
+                    # convert it to a dictionary (json)
                     result = json.loads(text)
                     print(result["text"])
-                    speak(result["text"])
-                #else:
-                #    print(rec.PartialResult())
+                    # speak(result["text"])
                 if dump_fn is not None:
                     dump_fn.write(data)
-
+# exit program when 'ctrl + c' pressed
 except KeyboardInterrupt:
     print('\nDone')
     parser.exit(0)
+# exit program when and exception is reached
 except Exception as e:
     parser.exit(type(e).__name__ + ': ' + str(e))
